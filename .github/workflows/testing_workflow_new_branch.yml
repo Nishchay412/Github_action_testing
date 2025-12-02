@@ -1,4 +1,4 @@
-name: Auto PR: scan new feature branches into dev
+name: Auto PR:scan new feature branches into dev
 
 on:
   # Run every 30 minutes (tweak as you like)
