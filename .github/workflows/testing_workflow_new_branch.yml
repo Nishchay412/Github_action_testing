@@ -1,10 +1,10 @@
-name: Auto PR:scan new feature branches into dev
+name: "Auto PR: scan new feature branches into dev"
 
 on:
-  # Run every 30 minutes (tweak as you like)
+  # Run every minute (for testing)
   schedule:
     - cron: "*/1 * * * *"
-  # Allow manual run from Actions tab for debugging
+  # Allow manual run from Actions tab
   workflow_dispatch:
 
 permissions:
@@ -24,28 +24,23 @@ jobs:
             const repo = context.repo.repo;
             const baseBranch = 'dev';
 
-            // Consider a branch "new" if its latest commit is within this many minutes
-            const MAX_AGE_MINUTES = 60; // tweak this
+            const MAX_AGE_MINUTES = 60;
 
-            // Adjust to match your feature branch naming convention
             const branchPatterns = [
               /^feature\//i,
               /^feat\//i,
-              // add more if needed, e.g. /^FLS-/i
             ];
 
             function isFeatureBranch(name) {
               return branchPatterns.some(re => re.test(name));
             }
 
-            // Helper to compute age in minutes
             function ageInMinutes(isoDate) {
               const now = new Date();
               const t = new Date(isoDate);
               return (now - t) / (1000 * 60);
             }
 
-            // 1. List all branches (paged)
             const allBranches = [];
             let page = 1;
             const per_page = 100;
@@ -65,7 +60,6 @@ jobs:
 
             console.log(`Found ${allBranches.length} branches total`);
 
-            // 2. Filter candidate feature branches (by name, not dev, not main)
             const candidateBranches = allBranches
               .map(b => b.name)
               .filter(name =>
@@ -81,11 +75,7 @@ jobs:
 
             console.log('Candidate feature branches:', candidateBranches);
 
-            // 3. For each candidate, check:
-            //    - Is it "new" based on last commit age?
-            //    - Does a PR (open or closed) already exist from this branch into dev?
             for (const branchName of candidateBranches) {
-              // 3a. Get branch to find head commit SHA
               let branch;
               try {
                 const { data } = await github.rest.repos.getBranch({
@@ -105,7 +95,6 @@ jobs:
                 continue;
               }
 
-              // 3b. Get head commit details and check age
               let commit;
               try {
                 const { data } = await github.rest.repos.getCommit({
@@ -136,13 +125,12 @@ jobs:
                 continue;
               }
 
-              // 3c. Check if ANY PR (open or closed) already exists from this branch into dev
               const { data: existingPrs } = await github.rest.pulls.list({
                 owner,
                 repo,
                 head: `${owner}:${branchName}`,
                 base: baseBranch,
-                state: 'all',   // open + closed
+                state: 'all',
               });
 
               if (existingPrs.length > 0) {
@@ -152,7 +140,6 @@ jobs:
                 continue;
               }
 
-              // 4. Create PR
               console.log(`Creating PR for ${branchName} -> ${baseBranch}`);
 
               try {
