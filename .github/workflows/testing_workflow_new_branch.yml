@@ -3,7 +3,7 @@ name: "Auto PR: scan new feature branches into dev"
 on:
   # Run every minute (for testing)
   schedule:
-    - cron: "*/1 * * * *"
+     - cron: "*/5 * * * *"
   # Allow manual run from Actions tab
   workflow_dispatch:
 
