@@ -2,9 +2,6 @@ name: Auto PR from feature branch to dev
 
 on:
   create:
-    branches:
-      - "feature/*"   # adjust patterns to match your naming
-      - "feat/*"
 
 permissions:
   contents: read
@@ -21,18 +18,55 @@ jobs:
           script: |
             const payload = context.payload;
 
-            // Only act on branches (ignore tag creation)
+            // 1. Only branches (ignore tags)
             if (payload.ref_type !== 'branch') {
-              core.info(`Ref type is ${payload.ref_type}, skipping.`);
+              console.log(`Ref type is ${payload.ref_type}, skipping.`);
               return;
             }
 
-            const featureBranch = payload.ref;   // branch name, e.g. "feature/JIRA-123"
+            const featureBranch = payload.ref;         // e.g. "feature/ABC-123"
             const baseBranch = 'dev';
 
-            core.info(`Creating PR from ${featureBranch} -> ${baseBranch}`);
+            // 2. Optional: only act on certain naming patterns
+            const allowedPatterns = [/^feature\//i, /^feat\//i];
+            const matchesPattern = allowedPatterns.some((re) => re.test(featureBranch));
 
-            // Try to create the PR
+            if (!matchesPattern) {
+              console.log(`Branch "${featureBranch}" does not match feature patterns, skipping.`);
+              return;
+            }
+
+            console.log(`Attempting PR from "${featureBranch}" -> "${baseBranch}"`);
+
+            // 3. Check that base branch exists
+            try {
+              await github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: baseBranch,
+              });
+            } catch (e) {
+              console.log(`Base branch "${baseBranch}" not found. Error: ${e.message}`);
+              return;
+            }
+
+            // 4. Avoid duplicate PRs
+            const { data: existingPrs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${featureBranch}`,
+              base: baseBranch,
+              state: 'open',
+            });
+
+            if (existingPrs.length > 0) {
+              console.log(
+                `PR already exists for ${featureBranch} -> ${baseBranch}: #${existingPrs[0].number}`
+              );
+              return;
+            }
+
+            // 5. Try to create the PR
             try {
               const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
@@ -40,11 +74,13 @@ jobs:
                 title: `Auto PR: ${featureBranch} → ${baseBranch}`,
                 head: featureBranch,
                 base: baseBranch,
-                body: `This pull request was automatically created for branch \`${featureBranch}\` targeting \`${baseBranch}\`.`
+                body: `This pull request was automatically created for branch \`${featureBranch}\` targeting \`${baseBranch}\`.`,
               });
 
-              core.info(`PR created: #${pr.number}`);
+              console.log(`PR created: #${pr.number}`);
             } catch (error) {
-              // If PR already exists or something similar, just log it
-              core.warning(`Failed to create PR: ${error.message}`);
+              // Common case: 422 "No commits between dev and featureBranch" or "A pull request already exists"
+              console.log('Failed to create PR. Full error below:');
+              console.log(JSON.stringify(error, null, 2));
+              // Do NOT rethrow, so the job doesn’t go red just because there’s no diff
             }
