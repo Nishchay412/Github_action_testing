@@ -3,7 +3,7 @@ name: Auto PR:scan new feature branches into dev
 on:
   # Run every 30 minutes (tweak as you like)
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/1 * * * *"
   # Allow manual run from Actions tab for debugging
   workflow_dispatch:
 
