@@ -1,4 +1,5 @@
 name: Auto PR from feature branch to dev
+run-name: "Auto PR on branch create"
 
 on:
   create:
@@ -18,16 +19,16 @@ jobs:
           script: |
             const payload = context.payload;
 
-            // 1. Only branches (ignore tags)
+            // Only branches (ignore tag creation)
             if (payload.ref_type !== 'branch') {
               console.log(`Ref type is ${payload.ref_type}, skipping.`);
               return;
             }
 
-            const featureBranch = payload.ref;         // e.g. "feature/ABC-123"
+            const featureBranch = payload.ref;   // e.g. "feature/JIRA-123"
             const baseBranch = 'dev';
 
-            // 2. Optional: only act on certain naming patterns
+            // Optional: only act on certain naming patterns
             const allowedPatterns = [/^feature\//i, /^feat\//i];
             const matchesPattern = allowedPatterns.some((re) => re.test(featureBranch));
 
@@ -38,7 +39,7 @@ jobs:
 
             console.log(`Attempting PR from "${featureBranch}" -> "${baseBranch}"`);
 
-            // 3. Check that base branch exists
+            // Check that base branch exists
             try {
               await github.rest.repos.getBranch({
                 owner: context.repo.owner,
@@ -50,7 +51,7 @@ jobs:
               return;
             }
 
-            // 4. Avoid duplicate PRs
+            // Avoid duplicate PRs
             const { data: existingPrs } = await github.rest.pulls.list({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -66,7 +67,7 @@ jobs:
               return;
             }
 
-            // 5. Try to create the PR
+            // Try to create the PR
             try {
               const { data: pr } = await github.rest.pulls.create({
                 owner: context.repo.owner,
@@ -79,8 +80,6 @@ jobs:
 
               console.log(`PR created: #${pr.number}`);
             } catch (error) {
-              // Common case: 422 "No commits between dev and featureBranch" or "A pull request already exists"
               console.log('Failed to create PR. Full error below:');
               console.log(JSON.stringify(error, null, 2));
-              // Do NOT rethrow, so the job doesn’t go red just because there’s no diff
             }
