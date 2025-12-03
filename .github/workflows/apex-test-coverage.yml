@@ -29,16 +29,17 @@ jobs:
           npm install --global @salesforce/cli
           sf version
 
-      # 4) AUTH STEP (placeholder)
-      #    In your real org, you'll need to log in here (JWT, SFDX URL, or existing auth).
-      # - name: Authenticate to Salesforce
-      #   run: |
-      #     echo "${{ secrets.SF_SERVER_KEY }}" > server.key
-      #     sf org login jwt \
-      #       --username ${{ secrets.SF_USERNAME }} \
-      #       --client-id ${{ secrets.SF_CONSUMER_KEY }} \
-      #       --jwt-key-file server.key \
-      #       --alias ci-org
+      # 4) Authenticate to Salesforce using SFDX auth URL
+      - name: Authenticate to Salesforce Dev Org
+        env:
+          SF_AUTH_URL: ${{ secrets.SF_AUTH_URL }}
+        run: |
+          echo "$SF_AUTH_URL" > auth-url.txt
+          sf org login sfdx-url \
+            --sfdx-url-file auth-url.txt \
+            --alias ci-org \
+            --set-default
+          sf org display --target-org ci-org
 
       # 5) Build Apex test class list from files
       - name: Build Apex test class list
@@ -69,6 +70,7 @@ jobs:
           fi
 
           sf apex run test \
+            --target-org ci-org \
             --tests "$TEST_CLASSES" \
             --code-coverage \
             --result-format json \
