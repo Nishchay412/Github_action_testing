@@ -11,25 +11,39 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1) Checkout the PR head (feature branch commit)
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
-          # this is the feature branch commit in the PR
           ref: ${{ github.event.pull_request.head.sha }}
 
+      # 2) (Optional but safer) Ensure Node is available
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3) Install Salesforce CLI
       - name: Install Salesforce CLI
         run: |
           npm install --global @salesforce/cli
           sf version
 
-      # AUTH STEP GOES HERE IF NEEDED
+      # 4) AUTH STEP (placeholder)
+      #    In your real org, you'll need to log in here (JWT, SFDX URL, or existing auth).
       # - name: Authenticate to Salesforce
-      #   run: ...
+      #   run: |
+      #     echo "${{ secrets.SF_SERVER_KEY }}" > server.key
+      #     sf org login jwt \
+      #       --username ${{ secrets.SF_USERNAME }} \
+      #       --client-id ${{ secrets.SF_CONSUMER_KEY }} \
+      #       --jwt-key-file server.key \
+      #       --alias ci-org
 
+      # 5) Build Apex test class list from files
       - name: Build Apex test class list
         run: |
           APEX_DIR="force-app/main/default/classes"
-          TEST_CLASSES=""
 
           if [ ! -d "$APEX_DIR" ]; then
             echo "Apex directory '$APEX_DIR' not found. Nothing to test."
@@ -37,24 +51,18 @@ jobs:
             exit 0
           fi
 
-          find "$APEX_DIR" -maxdepth 1 \( -name '*Test.cls' -o -name '*-test.cls' \) | while read -r test_file; do
-            class_name=$(grep -m1 -Po 'class\s+\K\w+' "$test_file" || true)
-            if [ -z "$class_name" ]; then
-              class_name=$(basename "$test_file" .cls)
-            fi
-            if [ -z "$TEST_CLASSES" ]; then
-              TEST_CLASSES="$class_name"
-            else
-              TEST_CLASSES="$TEST_CLASSES,$class_name"
-            fi
-          done
+          # Find all *Test.cls and *-test.cls and turn them into a comma-separated list
+          TEST_CLASSES=$(find "$APEX_DIR" -maxdepth 1 \( -name '*Test.cls' -o -name '*-test.cls' \) \
+            -exec basename {} .cls \; | paste -sd, -)
 
           echo "Resolved Apex test classes: $TEST_CLASSES"
           echo "TEST_CLASSES=$TEST_CLASSES" >> $GITHUB_ENV
 
+      # 6) Run Apex tests and collect coverage
       - name: Run Apex tests and collect coverage
         run: |
           mkdir -p coverage/apex
+
           if [ -z "$TEST_CLASSES" ]; then
             echo "No Apex test classes found. Skipping Apex tests."
             exit 0
@@ -67,8 +75,12 @@ jobs:
             --output-dir coverage/apex \
             --wait 30
 
+          echo "Apex tests completed. Coverage JSON written to coverage/apex"
+
+      # 7) Upload coverage artifact for inspection / dashboard use
       - name: Upload Apex coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: apex-coverage-${{ github.event.pull_request.number }}
           path: coverage/apex/
+          if-no-files-found: warn
