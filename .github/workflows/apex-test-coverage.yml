@@ -1,0 +1,73 @@
+name: Apex coverage on merge to release-branch
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - release-branch
+
+jobs:
+  apex-coverage:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    env:
+      MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+
+    steps:
+
+      - name: Checkout merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MERGE_SHA }}
+
+      # INSTALL SALESFORCE CLI HERE
+      - name: Install Salesforce CLI
+        run: |
+          npm install --global @salesforce/cli
+          sf version
+
+      # AUTH STEP GOES HERE in real world
+      # (depends on your org setup — JWT is likely)
+      # - name: Authenticate to Salesforce
+      #   run: ...
+      
+      - name: Build Apex test class list
+        run: |
+          APEX_DIR="force-app/main/default/classes"
+          TEST_CLASSES=""
+
+          find "$APEX_DIR" -maxdepth 1 \( -name '*Test.cls' -o -name '*-test.cls' \) | while read -r test_file; do
+            class_name=$(grep -m1 -Po 'class\s+\K\w+' "$test_file" || true)
+            if [ -z "$class_name" ]; then
+              class_name=$(basename "$test_file" .cls)
+            fi
+            if [ -z "$TEST_CLASSES" ]; then
+              TEST_CLASSES="$class_name"
+            else
+              TEST_CLASSES="$TEST_CLASSES,$class_name"
+            fi
+          done
+
+          echo "TEST_CLASSES=$TEST_CLASSES" >> $GITHUB_ENV
+
+      - name: Run Apex tests and collect coverage
+        run: |
+          mkdir -p coverage/apex
+          if [ -z "$TEST_CLASSES" ]; then
+            echo "No Apex test classes found. Skipping Apex tests."
+            exit 0
+          fi
+
+          sf apex run test \
+            --tests "$TEST_CLASSES" \
+            --code-coverage \
+            --result-format json \
+            --output-dir coverage/apex \
+            --wait 30
+
+      - name: Upload Apex coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-coverage-${{ github.event.pull_request.number }}
+          path: coverage/apex/
