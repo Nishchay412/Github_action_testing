@@ -1,0 +1,88 @@
+name: Apex coverage on PR to release-branch
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - release-branch
+
+jobs:
+  apex-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout the PR head (feature branch commit)
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # 2) (Optional but safer) Ensure Node is available
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3) Install Salesforce CLI
+      - name: Install Salesforce CLI
+        run: |
+          npm install --global @salesforce/cli
+          sf version
+
+      # 4) Authenticate to Salesforce using SFDX auth URL
+      - name: Authenticate to Salesforce Dev Org
+        env:
+          SF_AUTH_URL: ${{ secrets.SF_AUTH_URL }}
+        run: |
+          echo "$SF_AUTH_URL" > auth-url.txt
+          sf org login sfdx-url \
+            --sfdx-url-file auth-url.txt \
+            --alias ci-org \
+            --set-default
+          sf org display --target-org ci-org
+
+      # 5) Build Apex test class list from files
+      - name: Build Apex test class list
+        run: |
+          APEX_DIR="force-app/main/default/classes"
+
+          if [ ! -d "$APEX_DIR" ]; then
+            echo "Apex directory '$APEX_DIR' not found. Nothing to test."
+            echo "TEST_CLASSES=" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          # Find all *Test.cls and *-test.cls and turn them into a comma-separated list
+          TEST_CLASSES=$(find "$APEX_DIR" -maxdepth 1 \( -name '*Test.cls' -o -name '*-test.cls' \) \
+            -exec basename {} .cls \; | paste -sd, -)
+
+          echo "Resolved Apex test classes: $TEST_CLASSES"
+          echo "TEST_CLASSES=$TEST_CLASSES" >> $GITHUB_ENV
+
+      # 6) Run Apex tests and collect coverage
+      - name: Run Apex tests and collect coverage
+        run: |
+          mkdir -p coverage/apex
+
+          if [ -z "$TEST_CLASSES" ]; then
+            echo "No Apex test classes found. Skipping Apex tests."
+            exit 0
+          fi
+
+          sf apex run test \
+            --target-org ci-org \
+            --tests "$TEST_CLASSES" \
+            --code-coverage \
+            --result-format json \
+            --output-dir coverage/apex \
+            --wait 30
+
+          echo "Apex tests completed. Coverage JSON written to coverage/apex"
+
+      # 7) Upload coverage artifact for inspection / dashboard use
+      - name: Upload Apex coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-coverage-${{ github.event.pull_request.number }}
+          path: coverage/apex/
+          if-no-files-found: warn
