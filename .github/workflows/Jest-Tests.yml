@@ -1,0 +1,99 @@
+name: Jest regression on PR to dev
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - jest-testing
+
+jobs:
+  jest-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout the PR head (feature branch code)
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # 2) Set up Node so we can install and run Jest
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3) Bootstrap minimal Node + sfdx-lwc-jest + sfdx-project.json
+      - name: Bootstrap Jest/SFDX environment
+        run: |
+          # Create package.json if missing
+          if [ ! -f package.json ]; then
+            echo "No package.json found. Creating a minimal one..."
+            npm init -y >/dev/null 2>&1
+          fi
+
+          # Install Salesforce LWC Jest runner
+          npm install --save-dev @salesforce/sfdx-lwc-jest
+
+          # Ensure we have a test:unit script pointing to sfdx-lwc-jest
+          node << 'EOF'
+          const fs = require('fs');
+          const path = './package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.scripts = pkg.scripts || {};
+          if (!pkg.scripts['test:unit']) {
+            pkg.scripts['test:unit'] = 'sfdx-lwc-jest';
+          }
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
+          EOF
+
+          # Create minimal sfdx-project.json if missing
+          node << 'EOF'
+          const fs = require('fs');
+          const projectPath = './sfdx-project.json';
+          if (!fs.existsSync(projectPath)) {
+            console.log('No sfdx-project.json found. Creating a minimal SFDX config...');
+            const project = {
+              packageDirectories: [
+                {
+                  path: "force-app",
+                  default: true
+                }
+              ],
+              namespace: "",
+              sfdcLoginUrl: "https://login.salesforce.com",
+              sourceApiVersion: "61.0"
+            };
+            fs.writeFileSync(projectPath, JSON.stringify(project, null, 2));
+          } else {
+            console.log('sfdx-project.json already exists. Using existing config.');
+          }
+          EOF
+
+      # 4) Run Jest regression tests on feature branch LWC tests
+      - name: Run Jest regression tests
+        run: |
+          # If the LWC folder doesn't exist, just skip
+          if [ ! -d "force-app/main/default/lwc" ]; then
+            echo "No LWC folder found at force-app/main/default/lwc. Nothing to run."
+            exit 0
+          fi
+
+          # If there are no __tests__ folders, skip
+          if ! find force-app/main/default/lwc -type d -name "__tests__" | grep -q .; then
+            echo "No LWC __tests__ folders found. Nothing to run."
+            exit 0
+          fi
+
+          mkdir -p coverage/jest
+
+          # Extra Jest args go after `--`
+          npx sfdx-lwc-jest --runInBand --coverage -- --coverageDirectory=coverage/jest
+
+      # 5) Upload Jest coverage artifact (optional)
+      - name: Upload Jest coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-coverage-${{ github.event.pull_request.number }}
+          path: coverage/jest/
+          if-no-files-found: warn
