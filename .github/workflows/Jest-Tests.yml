@@ -11,34 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout the PR head (feature branch commit)
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      # 2) Set up Node so we can install and run Jest
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3) Bootstrap a temp Node project + install sfdx-lwc-jest
-      - name: Bootstrap Jest environment
+      # Bootstrap minimal Node + sfdx-lwc-jest + sfdx-project.json
+      - name: Bootstrap Jest/SFDX environment
         run: |
-          # If there's no package.json in the repo, create a minimal one
+          # 1) Create package.json if missing
           if [ ! -f package.json ]; then
-            echo "No package.json found. Creating a minimal one for Jest..."
+            echo "No package.json found. Creating a minimal one..."
             npm init -y >/dev/null 2>&1
-          else
-            echo "package.json exists, will use it."
           fi
 
-          # Install Salesforce LWC Jest runner locally for this job
+          # 2) Install Salesforce LWC Jest runner
           npm install --save-dev @salesforce/sfdx-lwc-jest
 
-          # Add a test script if it doesn't exist
-          # (this only affects the runner's copy, not your repo)
+          # 3) Ensure we have a test:unit script
           node - << 'EOF'
           const fs = require('fs');
           const path = './package.json';
@@ -50,10 +45,27 @@ jobs:
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
           EOF
 
-      # 4) Run all Jest LWC tests that exist in the feature branch
+          # 4) Create minimal sfdx-project.json if missing
+          if [ ! -f sfdx-project.json ]; then
+            echo "No sfdx-project.json found. Creating a minimal SFDX config..."
+            cat << 'EOF' > sfdx-project.json
+            {
+              "packageDirectories": [
+                {
+                  "path": "force-app",
+                  "default": true
+                }
+              ],
+              "namespace": "",
+              "sfdcLoginUrl": "https://login.salesforce.com",
+              "sourceApiVersion": "61.0"
+            }
+            EOF
+          fi
+
       - name: Run Jest regression tests
         run: |
-          # Optional: quick check whether there are any __tests__ folders at all
+          # If there are no __tests__ anywhere, just skip
           if ! find force-app/main/default/lwc -type d -name "__tests__" | grep -q .; then
             echo "No LWC __tests__ folders found. Nothing to run."
             exit 0
@@ -61,10 +73,9 @@ jobs:
 
           mkdir -p coverage/jest
 
-          # Run all LWC Jest tests
-          npx sfdx-lwc-jest --runInBand --coverage --coverageDirectory=coverage/jest
+          # NOTE: extra Jest args go after `--`
+          npx sfdx-lwc-jest --runInBand --coverage -- --coverageDirectory=coverage/jest
 
-      # 5) Upload Jest coverage artifact (optional)
       - name: Upload Jest coverage artifact
         uses: actions/upload-artifact@v4
         with:
