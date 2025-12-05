@@ -1,5 +1,5 @@
 import { createElement } from 'lwc';
-import HelloWorld from 'c/helloWorld';
+import HelloWorld from 'c/hello-world';
 
 describe('c-hello-world', () => {
   afterEach(() => {
