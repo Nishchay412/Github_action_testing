@@ -1,0 +1,73 @@
+name: Jest regression on PR to dev
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - dev
+
+jobs:
+  jest-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout the PR head (feature branch commit)
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # 2) Set up Node so we can install and run Jest
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3) Bootstrap a temp Node project + install sfdx-lwc-jest
+      - name: Bootstrap Jest environment
+        run: |
+          # If there's no package.json in the repo, create a minimal one
+          if [ ! -f package.json ]; then
+            echo "No package.json found. Creating a minimal one for Jest..."
+            npm init -y >/dev/null 2>&1
+          else
+            echo "package.json exists, will use it."
+          fi
+
+          # Install Salesforce LWC Jest runner locally for this job
+          npm install --save-dev @salesforce/sfdx-lwc-jest
+
+          # Add a test script if it doesn't exist
+          # (this only affects the runner's copy, not your repo)
+          node - << 'EOF'
+          const fs = require('fs');
+          const path = './package.json';
+          const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          pkg.scripts = pkg.scripts || {};
+          if (!pkg.scripts['test:unit']) {
+            pkg.scripts['test:unit'] = 'sfdx-lwc-jest';
+          }
+          fs.writeFileSync(path, JSON.stringify(pkg, null, 2));
+          EOF
+
+      # 4) Run all Jest LWC tests that exist in the feature branch
+      - name: Run Jest regression tests
+        run: |
+          # Optional: quick check whether there are any __tests__ folders at all
+          if ! find force-app/main/default/lwc -type d -name "__tests__" | grep -q .; then
+            echo "No LWC __tests__ folders found. Nothing to run."
+            exit 0
+          fi
+
+          mkdir -p coverage/jest
+
+          # Run all LWC Jest tests
+          npx sfdx-lwc-jest --runInBand --coverage --coverageDirectory=coverage/jest
+
+      # 5) Upload Jest coverage artifact (optional)
+      - name: Upload Jest coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-coverage-${{ github.event.pull_request.number }}
+          path: coverage/jest/
+          if-no-files-found: warn
