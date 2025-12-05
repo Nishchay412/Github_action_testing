@@ -1,0 +1,62 @@
+name: Jest regression on PR to dev
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - jest-tests
+
+jobs:
+  jest-regression:
+    runs-on: ghes-runners-standard
+
+    steps:
+      # 1) Checkout the PR head (feature branch code)
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # 2) Set up Node (version can be whatever your repo uses)
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3) Install dependencies from package.json on the base branch
+      #    (GHES will use RBC's internal npm registry)
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      # 4) Run Jest LWC tests from the feature branch
+      - name: Run Jest regression tests
+        run: |
+          # If there is no LWC folder at all, just skip
+          if [ ! -d "force-app/main/default/lwc" ]; then
+            echo "No LWC folder found. Skipping Jest tests."
+            exit 0
+          fi
+
+          # If there are no __tests__ folders, skip
+          if ! find force-app/main/default/lwc -type d -name "__tests__" | grep -q .; then
+            echo "No LWC __tests__ folders found. Skipping Jest tests."
+            exit 0
+          fi
+
+          mkdir -p coverage/jest
+
+          # Uses the sfdx-lwc-jest that was installed via package.json
+          npx sfdx-lwc-jest --coverage
+
+      # 5) Upload coverage (optional, but useful)
+      - name: Upload Jest coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-coverage-${{ github.event.pull_request.number }}
+          path: coverage/jest/
+          if-no-files-found: warn
