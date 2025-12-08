@@ -1,10 +1,17 @@
-name: "Auto PR: scan new feature branches into dev"
+name: "Auto PR: new feature branches into dev"
 
 on:
+  # Trigger when a branch is created (works for normal branching off main)
   create:
     branches:
       - "feature/**"
       - "feat/**"
+  # Trigger on first or any push to the branch (catches branches created from old commits)
+  push:
+    branches:
+      - "feature/**"
+      - "feat/**"
+  # Allow manual execution
   workflow_dispatch:
 
 permissions:
@@ -12,29 +19,38 @@ permissions:
   pull-requests: write
 
 jobs:
-  open-pr-on-branch-create:
+  open-pr-for-feature-branch:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create PR for new branch
+      - name: Determine branch name
+        id: branch
+        run: |
+          # For create event:   refs/heads/feature/foo
+          # For push event:     refs/heads/feature/foo
+          ref="${GITHUB_REF#refs/heads/}"
+          echo "branch=$ref" >> $GITHUB_OUTPUT
+
+      - name: Create PR to dev if not already present
         uses: actions/github-script@v7
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const baseBranch = "dev";
-            const branchName = context.payload.ref.replace("refs/heads/","");
+            const branchName = "${{ steps.branch.outputs.branch }}";
 
-            console.log(`New branch detected: ${branchName}`);
+            console.log(`Trigger for branch: ${branchName}`);
 
-            // Validate pattern manually if you want additional filters
-            const branchPatterns = [/^feature\//i, /^feat\//i];
+            // Skip if somehow not a feature branch
+            const patterns = [/^feature\//i, /^feat\//i];
 
-            if (!branchPatterns.some(re => re.test(branchName))) {
-              console.log("Not a feature branch, exiting.");
+            if (!patterns.some(re => re.test(branchName))) {
+              console.log(`Not a feature branch, exiting.`);
               return;
             }
 
+            // Check if a PR already exists
             const { data: existingPrs } = await github.rest.pulls.list({
               owner,
               repo,
@@ -44,11 +60,14 @@ jobs:
             });
 
             if (existingPrs.length > 0) {
-              console.log(`Skipping, PR already exists (#${existingPrs[0].number})`);
+              console.log(
+                `PR already exists (e.g. #${existingPrs[0].number}), skipping.`
+              );
               return;
             }
 
-            console.log(`Creating PR ${branchName} -> ${baseBranch}`);
+            // Create PR
+            console.log(`Creating PR ${branchName} → ${baseBranch}`);
 
             try {
               const { data: pr } = await github.rest.pulls.create({
@@ -57,11 +76,12 @@ jobs:
                 head: branchName,
                 base: baseBranch,
                 title: `Auto PR: ${branchName} → ${baseBranch}`,
-                body: `Auto-created PR for branch \`${branchName}\` targeting \`${baseBranch}\`.`,
+                body: `Automatically created PR for branch \`${branchName}\` targeting \`${baseBranch}\`.`,
               });
 
-              console.log(`✔ PR created #${pr.number}`);
+              console.log(`✔ PR created: #${pr.number}`);
+
             } catch (error) {
-              console.log(`❌ Failed to create PR`);
+              console.log("❌ Failed creating PR");
               console.log(JSON.stringify(error, null, 2));
             }
