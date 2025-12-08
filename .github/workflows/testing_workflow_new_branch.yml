@@ -1,160 +1,160 @@
-name: "Auto PR: scan new feature branches into dev"
+# name: "Auto PR: scan new feature branches into dev"
 
-on:
-  # Run every minute (for testing)
-  schedule:
-     - cron: "*/5 * * * *"
-  # Allow manual run from Actions tab
-  workflow_dispatch:
+# on:
+#   # Run every minute (for testing)
+#   schedule:
+#      - cron: "*/5 * * * *"
+#   # Allow manual run from Actions tab
+#   workflow_dispatch:
 
-permissions:
-  contents: read
-  pull-requests: write
+# permissions:
+#   contents: read
+#   pull-requests: write
 
-jobs:
-  scan-and-open-prs:
-    runs-on: ubuntu-latest
+# jobs:
+#   scan-and-open-prs:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: Scan branches and create PRs to dev
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const baseBranch = 'dev';
+#     steps:
+#       - name: Scan branches and create PRs to dev
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const owner = context.repo.owner;
+#             const repo = context.repo.repo;
+#             const baseBranch = 'dev';
 
-            const MAX_AGE_MINUTES = 60;
+#             const MAX_AGE_MINUTES = 60;
 
-            const branchPatterns = [
-              /^feature\//i,
-              /^feat\//i,
-            ];
+#             const branchPatterns = [
+#               /^feature\//i,
+#               /^feat\//i,
+#             ];
 
-            function isFeatureBranch(name) {
-              return branchPatterns.some(re => re.test(name));
-            }
+#             function isFeatureBranch(name) {
+#               return branchPatterns.some(re => re.test(name));
+#             }
 
-            function ageInMinutes(isoDate) {
-              const now = new Date();
-              const t = new Date(isoDate);
-              return (now - t) / (1000 * 60);
-            }
+#             function ageInMinutes(isoDate) {
+#               const now = new Date();
+#               const t = new Date(isoDate);
+#               return (now - t) / (1000 * 60);
+#             }
 
-            const allBranches = [];
-            let page = 1;
-            const per_page = 100;
+#             const allBranches = [];
+#             let page = 1;
+#             const per_page = 100;
 
-            while (true) {
-              const { data } = await github.rest.repos.listBranches({
-                owner,
-                repo,
-                per_page,
-                page,
-              });
-              if (!data.length) break;
-              allBranches.push(...data);
-              if (data.length < per_page) break;
-              page += 1;
-            }
+#             while (true) {
+#               const { data } = await github.rest.repos.listBranches({
+#                 owner,
+#                 repo,
+#                 per_page,
+#                 page,
+#               });
+#               if (!data.length) break;
+#               allBranches.push(...data);
+#               if (data.length < per_page) break;
+#               page += 1;
+#             }
 
-            console.log(`Found ${allBranches.length} branches total`);
+#             console.log(`Found ${allBranches.length} branches total`);
 
-            const candidateBranches = allBranches
-              .map(b => b.name)
-              .filter(name =>
-                isFeatureBranch(name) &&
-                name !== baseBranch &&
-                name !== 'main'
-              );
+#             const candidateBranches = allBranches
+#               .map(b => b.name)
+#               .filter(name =>
+#                 isFeatureBranch(name) &&
+#                 name !== baseBranch &&
+#                 name !== 'main'
+#               );
 
-            if (!candidateBranches.length) {
-              console.log('No feature-like branches found, exiting.');
-              return;
-            }
+#             if (!candidateBranches.length) {
+#               console.log('No feature-like branches found, exiting.');
+#               return;
+#             }
 
-            console.log('Candidate feature branches:', candidateBranches);
+#             console.log('Candidate feature branches:', candidateBranches);
 
-            for (const branchName of candidateBranches) {
-              let branch;
-              try {
-                const { data } = await github.rest.repos.getBranch({
-                  owner,
-                  repo,
-                  branch: branchName,
-                });
-                branch = data;
-              } catch (e) {
-                console.log(`Skipping ${branchName}, could not fetch branch: ${e.message}`);
-                continue;
-              }
+#             for (const branchName of candidateBranches) {
+#               let branch;
+#               try {
+#                 const { data } = await github.rest.repos.getBranch({
+#                   owner,
+#                   repo,
+#                   branch: branchName,
+#                 });
+#                 branch = data;
+#               } catch (e) {
+#                 console.log(`Skipping ${branchName}, could not fetch branch: ${e.message}`);
+#                 continue;
+#               }
 
-              const sha = branch.commit && branch.commit.sha;
-              if (!sha) {
-                console.log(`Skipping ${branchName}, no commit SHA found`);
-                continue;
-              }
+#               const sha = branch.commit && branch.commit.sha;
+#               if (!sha) {
+#                 console.log(`Skipping ${branchName}, no commit SHA found`);
+#                 continue;
+#               }
 
-              let commit;
-              try {
-                const { data } = await github.rest.repos.getCommit({
-                  owner,
-                  repo,
-                  ref: sha,
-                });
-                commit = data;
-              } catch (e) {
-                console.log(`Skipping ${branchName}, could not fetch commit: ${e.message}`);
-                continue;
-              }
+#               let commit;
+#               try {
+#                 const { data } = await github.rest.repos.getCommit({
+#                   owner,
+#                   repo,
+#                   ref: sha,
+#                 });
+#                 commit = data;
+#               } catch (e) {
+#                 console.log(`Skipping ${branchName}, could not fetch commit: ${e.message}`);
+#                 continue;
+#               }
 
-              const commitDate =
-                (commit.commit && commit.commit.committer && commit.commit.committer.date) ||
-                (commit.commit && commit.commit.author && commit.commit.author.date);
+#               const commitDate =
+#                 (commit.commit && commit.commit.committer && commit.commit.committer.date) ||
+#                 (commit.commit && commit.commit.author && commit.commit.author.date);
 
-              if (!commitDate) {
-                console.log(`Skipping ${branchName}, no commit date found`);
-                continue;
-              }
+#               if (!commitDate) {
+#                 console.log(`Skipping ${branchName}, no commit date found`);
+#                 continue;
+#               }
 
-              const age = ageInMinutes(commitDate);
-              console.log(`Branch ${branchName} latest commit age: ${age.toFixed(1)} minutes`);
+#               const age = ageInMinutes(commitDate);
+#               console.log(`Branch ${branchName} latest commit age: ${age.toFixed(1)} minutes`);
 
-              if (age > MAX_AGE_MINUTES) {
-                console.log(`Skipping ${branchName}, older than ${MAX_AGE_MINUTES} minutes`);
-                continue;
-              }
+#               if (age > MAX_AGE_MINUTES) {
+#                 console.log(`Skipping ${branchName}, older than ${MAX_AGE_MINUTES} minutes`);
+#                 continue;
+#               }
 
-              const { data: existingPrs } = await github.rest.pulls.list({
-                owner,
-                repo,
-                head: `${owner}:${branchName}`,
-                base: baseBranch,
-                state: 'all',
-              });
+#               const { data: existingPrs } = await github.rest.pulls.list({
+#                 owner,
+#                 repo,
+#                 head: `${owner}:${branchName}`,
+#                 base: baseBranch,
+#                 state: 'all',
+#               });
 
-              if (existingPrs.length > 0) {
-                console.log(
-                  `Skipping ${branchName}, PR already exists into ${baseBranch} (e.g. #${existingPrs[0].number})`
-                );
-                continue;
-              }
+#               if (existingPrs.length > 0) {
+#                 console.log(
+#                   `Skipping ${branchName}, PR already exists into ${baseBranch} (e.g. #${existingPrs[0].number})`
+#                 );
+#                 continue;
+#               }
 
-              console.log(`Creating PR for ${branchName} -> ${baseBranch}`);
+#               console.log(`Creating PR for ${branchName} -> ${baseBranch}`);
 
-              try {
-                const { data: pr } = await github.rest.pulls.create({
-                  owner,
-                  repo,
-                  head: branchName,
-                  base: baseBranch,
-                  title: `Auto PR: ${branchName} → ${baseBranch}`,
-                  body: `Auto-created PR for branch \`${branchName}\` targeting \`${baseBranch}\`.`,
-                });
+#               try {
+#                 const { data: pr } = await github.rest.pulls.create({
+#                   owner,
+#                   repo,
+#                   head: branchName,
+#                   base: baseBranch,
+#                   title: `Auto PR: ${branchName} → ${baseBranch}`,
+#                   body: `Auto-created PR for branch \`${branchName}\` targeting \`${baseBranch}\`.`,
+#                 });
 
-                console.log(`✅ Created PR #${pr.number} for ${branchName}`);
-              } catch (error) {
-                console.log(`⚠️ Failed to create PR for ${branchName}:`);
-                console.log(JSON.stringify(error, null, 2));
-              }
-            }
+#                 console.log(`✅ Created PR #${pr.number} for ${branchName}`);
+#               } catch (error) {
+#                 console.log(`⚠️ Failed to create PR for ${branchName}:`);
+#                 console.log(JSON.stringify(error, null, 2));
+#               }
+#             }
